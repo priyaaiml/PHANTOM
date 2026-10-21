@@ -41,3 +41,10 @@ def test_case_and_spacing_insensitive():
 def test_no_accidental_cross_domain():
     assert not m("microsoft.com", "microsoft.com.attacker.net")
     assert not m("*.microsoft.com", "microsoft.com.evil.io")
+
+
+def test_trailing_dot_and_empty_pattern_are_normalized():
+    assert m("example.com.", "example.com")
+    assert m("*.example.com.", "api.example.com")
+    assert not m("", "example.com")
+    assert not m("example.com", "")

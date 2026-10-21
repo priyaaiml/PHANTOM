@@ -63,11 +63,26 @@ def _host_pattern_matches(pattern: str, host: str) -> bool:
     - `api.example.com` matches itself and anything under it
     - suffix-safe: `notexample.com` does NOT match `example.com`
     """
-    p = pattern.lower().strip()
-    h = host.lower().strip()
+    if not pattern or not host:
+        return False
+
+    p = pattern.lower().strip().rstrip(".")
+    h = host.lower().strip().rstrip(".")
+    if not p or not h:
+        return False
+
+    if p == "*":
+        return True
     if h == p or fnmatch.fnmatch(h, p):
         return True
-    base = p[2:] if p.startswith("*.") else p
+
+    if p.startswith("*."):
+        base = p[2:]
+        if not base:
+            return False
+        return h == base or h.endswith("." + base)
+
+    base = p
     return h == base or h.endswith("." + base)
 
 
