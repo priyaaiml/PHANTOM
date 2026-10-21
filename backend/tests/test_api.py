@@ -716,3 +716,16 @@ def test_path_probe_finds_git_and_env(client):
         assert {"/.git/config", "/.env"} <= paths, paths
     finally:
         server.shutdown()
+
+
+def test_each_missing_header_is_reported_separately(client):
+    # regression: de-dupe on (type, url, parameter) used to keep only 1 header finding per URL
+    _seed_body("<html>x</html>", "https://multi-header.test/a", "/a")
+    client.post("/api/scanner/scan", json={"scan_type": "passive", "target_url": "multi-header.test"})
+    time.sleep(1.5)
+    found = client.get("/api/scanner/findings", params={"type": "headers"}).json()
+    mine = [f for f in found if f["url"] == "https://multi-header.test/a"]
+    assert {f["parameter"] for f in mine} == {
+        "strict-transport-security", "content-security-policy",
+        "x-frame-options", "x-content-type-options",
+    }

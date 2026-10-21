@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from api.websocket import broadcast
 from core.ai_engine import get_ai_engine
 from db import database
 from utils.logger import get_logger
