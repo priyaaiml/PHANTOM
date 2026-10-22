@@ -6,6 +6,7 @@ import {
   ArrowRight,
   Clock,
   Globe,
+  Info,
   Layers,
   ShieldCheck,
 } from 'lucide-react'
@@ -22,6 +23,8 @@ import {
 } from 'recharts'
 import { dashboardService, type DashboardStats } from '../../services/dashboardService'
 import { scannerService } from '../../services/scannerService'
+import { formatMs } from '../../utils/formatters'
+import { isLocalRuntime } from '../../utils/runtime'
 import { SeverityBadge } from '../shared/Badge'
 import { LoadingSpinner } from '../shared/LoadingSpinner'
 import { DashboardHero } from './DashboardHero'
@@ -123,6 +126,8 @@ export function DashboardView() {
     <div style={{ height: '100%', overflow: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
       <DashboardHero />
 
+      {!isLocalRuntime() && <RemoteDataSourceNotice />}
+
       {/* ---- Findings first ------------------------------------------------- */}
       <div className="panel" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -154,10 +159,11 @@ export function DashboardView() {
 
         {!loading && findings.length === 0 && (
           <div style={{ fontSize: 11.8, color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: '56rem' }}>
-            No findings have been produced yet. PHANTOM only reports what its checks can evidence from
-            captured traffic: enter an authorized target above and run a review, or browse the target
-            through the proxy first so there are requests to analyse. Zero findings means nothing was
-            established by the checks that ran — it is not a statement that the target is secure.
+            No findings have been produced by this backend yet. PHANTOM only reports what its checks can
+            evidence from captured traffic: enter an authorized target above and run a review, or browse
+            the target through the proxy first so there are requests to analyse. Zero findings means
+            nothing was established by the checks that ran — it is not a statement that the target is
+            secure.
           </div>
         )}
 
@@ -221,7 +227,12 @@ export function DashboardView() {
           value={stats?.total_findings ?? 0}
           to="/scanner"
         />
-        <StatCard icon={<Clock size={15} color="var(--accent-secondary)" />} label="Avg response" value={`${stats?.avg_response_time_ms ?? 0} ms`} to="/target" />
+        <StatCard
+          icon={<Clock size={15} color="var(--accent-secondary)" />}
+          label="Avg response"
+          value={stats ? formatMs(stats.avg_response_time_ms) : '—'}
+          to="/target"
+        />
         <StatCard icon={<Layers size={15} color="var(--severity-info)" />} label="Technologies" value={tech.length} to="/target" />
       </div>
 
@@ -306,6 +317,31 @@ export function DashboardView() {
           {!tech.length && <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>None detected yet</div>}
         </div>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Says plainly what this page's numbers can and cannot contain. A deployed
+ * dashboard reads one backend's database; a proxy started on the operator's own
+ * laptop writes to that laptop's database and nothing here will ever show it.
+ */
+function RemoteDataSourceNotice() {
+  return (
+    <div
+      className="panel"
+      style={{ padding: 12, display: 'flex', gap: 10, alignItems: 'flex-start', borderColor: 'var(--border-active)' }}
+    >
+      <Info size={15} color="var(--accent-primary)" style={{ flex: '0 0 auto', marginTop: 2 }} />
+      <span style={{ fontSize: 11.8, color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: '62rem' }}>
+        <strong style={{ color: 'var(--text-primary)' }}>Cloud view.</strong> This page is served from{' '}
+        <span className="mono">{location.host}</span> and reads only the backend it is deployed against — the
+        totals, findings and response times below are that backend&rsquo;s stored captures. A PHANTOM proxy
+        listening on <span className="mono">127.0.0.1:8080</span> on your own machine records into your local
+        database and does not feed this deployment. To review your own captured traffic, run PHANTOM locally
+        (frontend <span className="mono">:5173</span> · backend <span className="mono">:8899</span> · proxy{' '}
+        <span className="mono">:8080</span>).
+      </span>
     </div>
   )
 }

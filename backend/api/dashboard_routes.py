@@ -21,9 +21,12 @@ async def stats() -> dict:
         "SELECT host, COUNT(*) AS n FROM proxy_history GROUP BY host ORDER BY n DESC LIMIT 10"
     )
     severity_map = {r["severity"]: r["n"] for r in by_severity}
+    avg_ms = total_req["avg_ms"]
     return {
         "total_requests": total_req["n"],
-        "avg_response_time_ms": round(total_req["avg_ms"] or 0),
+        # No captured requests with timing -> unknown, not "0 ms". The client
+        # renders null as unavailable instead of inventing a measurement.
+        "avg_response_time_ms": None if avg_ms is None else round(avg_ms),
         "total_findings": sum(severity_map.values()),
         "findings_by_severity": {s: severity_map.get(s, 0) for s in SEVERITY_ORDER},
         "top_hosts": [{"host": r["host"], "count": r["n"]} for r in top_hosts],

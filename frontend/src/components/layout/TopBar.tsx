@@ -1,12 +1,19 @@
 import { Power, Shield } from 'lucide-react'
 import { useProxyStore } from '../../stores/proxyStore'
+import { isLocalRuntime } from '../../utils/runtime'
 
 export function TopBar() {
   const status = useProxyStore((s) => s.status)
   const startProxy = useProxyStore((s) => s.startProxy)
   const stopProxy = useProxyStore((s) => s.stopProxy)
   const running = status?.running ?? false
-  const proxyLabel = running ? `Running :${status?.port}` : 'Stopped'
+  // In a deployed build the proxy the backend reports is not the one this
+  // browser can route through, so the pill must not claim it is.
+  const local = isLocalRuntime()
+  const proxyLabel = !local ? 'remote host' : running ? `Running :${status?.port}` : 'Stopped'
+  const proxyTitle = local
+    ? `Local proxy ${running ? `running on ${status?.host}:${status?.port}` : 'stopped'}`
+    : 'This backend runs its own proxy on its own host; your browser proxy is configured locally'
 
   return (
     <header
@@ -43,7 +50,7 @@ export function TopBar() {
       <div style={{ flex: 1 }} />
 
       <div
-        title={`Local proxy ${proxyLabel}`}
+        title={proxyTitle}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -57,23 +64,22 @@ export function TopBar() {
           color: 'var(--text-secondary)',
         }}
       >
-        <span
-          className={running ? 'status-dot pulse-dot' : 'status-dot'}
-          style={{ background: running ? 'var(--severity-low)' : 'var(--text-muted)' }}
-        />
+        <span className={local && running ? 'status-dot pulse-dot' : 'status-dot'} style={{ background: local && running ? 'var(--severity-low)' : 'var(--text-muted)' }} />
         <span style={{ color: 'var(--text-muted)' }}>Proxy:</span>
-        <span className="mono" style={{ color: running ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: 500 }}>
+        <span className="mono" style={{ color: local && running ? 'var(--text-primary)' : 'var(--text-muted)', fontWeight: 500 }}>
           {proxyLabel}
         </span>
       </div>
 
-      <button
-        className={`glass-btn light sm ${running ? 'danger' : ''}`}
-        onClick={() => (running ? void stopProxy() : void startProxy())}
-      >
-        <Power size={12} />
-        {running ? 'Stop' : 'Start'}
-      </button>
+      {local && (
+        <button
+          className={`glass-btn light sm ${running ? 'danger' : ''}`}
+          onClick={() => (running ? void stopProxy() : void startProxy())}
+        >
+          <Power size={12} />
+          {running ? 'Stop' : 'Start'}
+        </button>
+      )}
     </header>
   )
 }

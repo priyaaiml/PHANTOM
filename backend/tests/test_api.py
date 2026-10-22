@@ -210,6 +210,31 @@ def test_dashboard_stats_shape(client):
     assert {"total_requests", "findings_by_severity", "top_hosts", "avg_response_time_ms"} <= set(body)
 
 
+def test_avg_response_time_is_null_when_unknown_never_zero(client):
+    """No timed captures -> null (unavailable). A fabricated 0 ms reads as a
+    measured sub-millisecond response, which is exactly what a dashboard must
+    never claim about an empty database."""
+    client.delete("/api/history")
+    body = client.get("/api/dashboard/stats").json()
+    assert body["total_requests"] == 0
+    assert body["avg_response_time_ms"] is None
+
+    import sqlite3
+
+    db = sqlite3.connect(config.DB_PATH)
+    db.execute(
+        """INSERT INTO proxy_history (method, scheme, host, port, path, url,
+             request_headers, status_code, response_headers, response_body, response_time_ms)
+           VALUES ('GET', 'https', 'timed.test', 443, '/t', 'https://timed.test/t',
+             '{}', 200, '{}', 'ok', 250)"""
+    )
+    db.commit()
+    db.close()
+    body = client.get("/api/dashboard/stats").json()
+    assert body["total_requests"] == 1
+    assert body["avg_response_time_ms"] == 250
+
+
 def test_ai_status_graceful_offline(client):
     r = client.get("/api/ai/status")
     assert r.status_code == 200

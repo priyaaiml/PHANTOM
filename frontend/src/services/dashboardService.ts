@@ -2,7 +2,8 @@ import { api } from './api'
 
 export interface DashboardStats {
   total_requests: number
-  avg_response_time_ms: number
+  /** null when no captured request carried timing data — render as unavailable. */
+  avg_response_time_ms: number | null
   total_findings: number
   findings_by_severity: Record<string, number>
   top_hosts: Array<{ host: string; count: number }>
