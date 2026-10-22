@@ -6,6 +6,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from core.proxy_engine import ProxyError, get_proxy_engine
+from db import database
 from utils import cert_manager
 
 router = APIRouter()
@@ -52,6 +53,16 @@ async def intercept_toggle(body: InterceptToggleIn) -> dict:
     addon.intercept_filter = body.filter or ""
     if not body.enabled:
         addon.drop_all()
+    # Persist, so the state survives a restart and stays truthful in Settings
+    # (the "Intercept on at startup" setting reads these keys).
+    await database.execute(
+        "UPDATE settings SET value = ? WHERE key = 'intercept_enabled'",
+        ("true" if body.enabled else "false",),
+    )
+    await database.execute(
+        "UPDATE settings SET value = ? WHERE key = 'intercept_filter'",
+        (addon.intercept_filter,),
+    )
     return {"intercept": body.enabled, "filter": addon.intercept_filter}
 
 

@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
   Clock,
   Globe,
   Layers,
+  ShieldCheck,
 } from 'lucide-react'
 import {
   Area,
@@ -18,21 +21,50 @@ import {
   YAxis,
 } from 'recharts'
 import { dashboardService, type DashboardStats } from '../../services/dashboardService'
+import { scannerService } from '../../services/scannerService'
 import { SeverityBadge } from '../shared/Badge'
 import { LoadingSpinner } from '../shared/LoadingSpinner'
+import { DashboardHero } from './DashboardHero'
+import { useScannerStore } from '../../stores/scannerStore'
+import type { Finding } from '../../types/scanner'
 
 const SEVERITY_COLORS: Record<string, string> = {
-  critical: '#ff3838',
-  high: '#ff6b35',
-  medium: '#ffc107',
-  low: '#00b894',
-  info: '#74b9ff',
+  critical: '#b3261e',
+  high: '#c2571c',
+  medium: '#a97a06',
+  low: '#4f7a21',
+  info: '#7a6f63',
+}
+
+const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info']
+const SEVERITY_RANK: Record<string, number> = Object.fromEntries(SEVERITY_ORDER.map((s, i) => [s, i]))
+
+const ACCENT = '#c2603c'
+const AXIS_TICK = { fill: '#9c9186', fontSize: 9 }
+const TOOLTIP_STYLE = {
+  background: '#fffdf9',
+  border: '1px solid #ece4d8',
+  borderRadius: 6,
+  fontSize: 11,
+  boxShadow: '0 4px 12px rgba(74,55,38,0.10)',
+}
+
+/** Checks whose evidence compares two requests (original vs. tampered). */
+const ACCESS_CONTROL_TYPES = new Set(['idor', 'cors'])
+
+/** Honest reading of the scanner's confidence field. */
+const CONFIDENCE_LABELS: Record<string, string> = {
+  certain: 'confirmed',
+  firm: 'observed',
+  tentative: 'potential',
 }
 
 export function DashboardView() {
+  const navigate = useNavigate()
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [traffic, setTraffic] = useState<Array<{ bucket: string; count: number }>>([])
   const [tech, setTech] = useState<Array<{ technology: string; hosts: string[] }>>([])
+  const [findings, setFindings] = useState<Finding[]>([])
   const [interval, setIntervalSel] = useState<'minute' | 'hour' | 'day'>('minute')
   const [loading, setLoading] = useState(true)
 
@@ -40,25 +72,35 @@ export function DashboardView() {
     void (async () => {
       setLoading(true)
       try {
-        const [s, t, tech] = await Promise.all([
+        const [s, t, tech, f] = await Promise.all([
           dashboardService.stats(),
           dashboardService.traffic('minute'),
           dashboardService.technologies(),
+          scannerService.findings(),
         ])
         setStats(s)
         setTraffic(t)
         setTech(tech)
+        setFindings(f)
       } finally {
         setLoading(false)
       }
     })()
   }, [])
 
+  // Findings and their counts are the point of this screen — keep them current
+  // while a scan is running elsewhere.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void dashboardService.stats().then(setStats).catch(() => undefined)
+      void scannerService.findings().then(setFindings).catch(() => undefined)
+    }, 10000)
+    return () => window.clearInterval(timer)
+  }, [])
+
   useEffect(() => {
     void dashboardService.traffic(interval).then(setTraffic)
   }, [interval])
-
-  if (loading && !stats) return <LoadingSpinner label="Crunching your session data…" />
 
   const pieData = stats
     ? Object.entries(stats.findings_by_severity)
@@ -66,22 +108,124 @@ export function DashboardView() {
         .map(([name, value]) => ({ name, value }))
     : []
 
+  const ranked = [...findings].sort(
+    (a, b) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9) || b.id - a.id,
+  )
+  const topFindings = ranked.slice(0, 6)
+  const openFindings = findings.filter((f) => (f.status ?? 'open') !== 'false_positive').length
+
+  const openFinding = (f: Finding) => {
+    useScannerStore.getState().selectFinding(f)
+    navigate('/scanner')
+  }
+
   return (
     <div style={{ height: '100%', overflow: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Activity size={16} color="var(--accent-primary)" />
-        <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: 0.5 }}>Dashboard</span>
+      <DashboardHero />
+
+      {/* ---- Findings first ------------------------------------------------- */}
+      <div className="panel" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <ShieldCheck size={16} color="var(--accent-primary)" />
+          <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: 0.4 }}>Security findings</span>
+          <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+            {findings.length === 0
+              ? 'nothing recorded yet'
+              : `${openFindings} open · ${findings.length} total`}
+          </span>
+          <div style={{ flex: 1 }} />
+          <a className="btn sm" href="#/scanner">
+            View Findings <ArrowRight size={11} />
+          </a>
+        </div>
+
+        {stats && stats.total_findings > 0 && (
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {SEVERITY_ORDER.map((sev) => (
+              <div key={sev} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <SeverityBadge severity={sev} />
+                <span style={{ fontSize: 12, fontWeight: 600 }}>{stats.findings_by_severity[sev] ?? 0}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {loading && !stats && <LoadingSpinner label="Loading findings…" />}
+
+        {!loading && findings.length === 0 && (
+          <div style={{ fontSize: 11.8, color: 'var(--text-secondary)', lineHeight: 1.6, maxWidth: '56rem' }}>
+            No findings have been produced yet. PHANTOM only reports what its checks can evidence from
+            captured traffic: enter an authorized target above and run a review, or browse the target
+            through the proxy first so there are requests to analyse. Zero findings means nothing was
+            established by the checks that ran — it is not a statement that the target is secure.
+          </div>
+        )}
+
+        {topFindings.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {topFindings.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => openFinding(f)}
+                className="finding-row"
+                title="Open in Scanner"
+              >
+                <SeverityBadge severity={f.severity} />
+                <span className="finding-title">{f.title}</span>
+                <span className="badge" style={{ background: 'var(--bg-primary)', color: 'var(--text-secondary)' }}>
+                  {CONFIDENCE_LABELS[f.confidence] ?? f.confidence}
+                </span>
+                {ACCESS_CONTROL_TYPES.has(f.finding_type) && (
+                  <span
+                    className="badge"
+                    style={{ background: 'var(--accent-soft)', color: 'var(--accent-hover)' }}
+                    title="Evidence compares the original request with a tampered or cross-origin one"
+                  >
+                    access control
+                  </span>
+                )}
+                <span className="mono finding-url">{f.url}</span>
+                {f.evidence && <span className="mono finding-evidence">{f.evidence.split('\n')[0]}</span>}
+                {(f.status ?? 'open') !== 'open' && (
+                  <span style={{ fontSize: 9.5, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                    {(f.status ?? '').replace('_', ' ')}
+                  </span>
+                )}
+              </button>
+            ))}
+            {ranked.length > topFindings.length && (
+              <a
+                href="#/scanner"
+                style={{ fontSize: 11.5, color: 'var(--accent-primary)', padding: '8px 2px 0', textDecoration: 'none' }}
+              >
+                {ranked.length - topFindings.length} more finding
+                {ranked.length - topFindings.length === 1 ? '' : 's'} in the Scanner →
+              </a>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* stat cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+      {/* ---- Session activity ----------------------------------------------- */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Activity size={16} color="var(--accent-primary)" />
+        <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: 0.4 }}>Captured activity</span>
+        <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>what the proxy has seen this session</span>
+      </div>
+
+      <div className="grid-stats">
         <StatCard icon={<Globe size={15} />} label="Total requests" value={stats?.total_requests ?? 0} to="/proxy" />
-        <StatCard icon={<AlertTriangle size={15} color="var(--severity-high)" />} label="Findings" value={stats?.total_findings ?? 0} to="/scanner" />
+        <StatCard
+          icon={<AlertTriangle size={15} color="var(--severity-high)" />}
+          label="Findings"
+          value={stats?.total_findings ?? 0}
+          to="/scanner"
+        />
         <StatCard icon={<Clock size={15} color="var(--accent-secondary)" />} label="Avg response" value={`${stats?.avg_response_time_ms ?? 0} ms`} to="/target" />
         <StatCard icon={<Layers size={15} color="var(--severity-info)" />} label="Technologies" value={tech.length} to="/target" />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+      <div className="grid-main">
         {/* traffic chart */}
         <div className="panel" style={{ padding: 12, height: 240 }}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
@@ -101,17 +245,14 @@ export function DashboardView() {
             <AreaChart data={traffic}>
               <defs>
                 <linearGradient id="tg" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#6c5ce7" stopOpacity={0.5} />
-                  <stop offset="100%" stopColor="#6c5ce7" stopOpacity={0.03} />
+                  <stop offset="0%" stopColor={ACCENT} stopOpacity={0.24} />
+                  <stop offset="100%" stopColor={ACCENT} stopOpacity={0.02} />
                 </linearGradient>
               </defs>
-              <XAxis dataKey="bucket" tick={{ fill: '#8888a8', fontSize: 9 }} tickLine={false} axisLine={{ stroke: '#2a2a3e' }} />
-              <YAxis tick={{ fill: '#8888a8', fontSize: 9 }} tickLine={false} axisLine={false} width={28} allowDecimals={false} />
-              <Tooltip
-                contentStyle={{ background: '#1a1a2e', border: '1px solid #4a4a6e', borderRadius: 8, fontSize: 11 }}
-                labelStyle={{ color: '#e8e8f0' }}
-              />
-              <Area type="monotone" dataKey="count" stroke="#6c5ce7" strokeWidth={2} fill="url(#tg)" />
+              <XAxis dataKey="bucket" tick={AXIS_TICK} tickLine={false} axisLine={{ stroke: '#ece4d8' }} />
+              <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} width={28} allowDecimals={false} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={{ color: '#262019', fontWeight: 600 }} />
+              <Area type="monotone" dataKey="count" stroke={ACCENT} strokeWidth={2} fill="url(#tg)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -124,10 +265,10 @@ export function DashboardView() {
               <PieChart>
                 <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={70} paddingAngle={3} strokeWidth={0}>
                   {pieData.map((d) => (
-                    <Cell key={d.name} fill={SEVERITY_COLORS[d.name] ?? '#555570'} />
+                    <Cell key={d.name} fill={SEVERITY_COLORS[d.name] ?? '#9c9186'} />
                   ))}
                 </Pie>
-                <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #4a4a6e', borderRadius: 8, fontSize: 11 }} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
               </PieChart>
             </ResponsiveContainer>
           ) : (
@@ -138,7 +279,7 @@ export function DashboardView() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div className="grid-halves">
         {/* top hosts */}
         <div className="panel" style={{ padding: 12 }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: 'var(--text-secondary)', marginBottom: 8 }}>TOP HOSTS</div>
@@ -165,18 +306,6 @@ export function DashboardView() {
           {!tech.length && <div style={{ color: 'var(--text-muted)', fontSize: 11 }}>None detected yet</div>}
         </div>
       </div>
-
-      {/* severity legend */}
-      {stats && stats.total_findings > 0 && (
-        <div className="panel" style={{ padding: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          {Object.entries(stats.findings_by_severity).map(([sev, count]) => (
-            <div key={sev} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <SeverityBadge severity={sev} />
-              <span style={{ fontSize: 12, fontWeight: 600 }}>{count}</span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

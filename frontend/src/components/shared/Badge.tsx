@@ -9,9 +9,8 @@ export function Badge({ color, bg, children }: BadgeProps) {
     <span
       className="badge"
       style={{
-        color: color ?? 'var(--text-primary)',
-        background: bg ?? 'var(--bg-tertiary)',
-        border: `1px solid ${color ? `${color}55` : 'var(--border-primary)'}`,
+        color: color ?? 'var(--text-secondary)',
+        background: bg ?? 'var(--bg-primary)',
       }}
     >
       {children}
@@ -19,19 +18,19 @@ export function Badge({ color, bg, children }: BadgeProps) {
   )
 }
 
-const SEVERITY_COLORS: Record<string, string> = {
-  critical: 'var(--severity-critical)',
-  high: 'var(--severity-high)',
-  medium: 'var(--severity-medium)',
-  low: 'var(--severity-low)',
-  info: 'var(--severity-info)',
+const SEVERITY_TONES: Record<string, { color: string; bg: string }> = {
+  critical: { color: 'var(--severity-critical)', bg: '#fdf0f0' },
+  high: { color: 'var(--severity-high)', bg: '#fdf3ec' },
+  medium: { color: 'var(--severity-medium)', bg: '#fdf7e9' },
+  low: { color: 'var(--severity-low)', bg: '#eef8f1' },
+  info: { color: 'var(--severity-info)', bg: '#eef3fe' },
 }
 
 export function SeverityBadge({ severity }: { severity: string }) {
-  const color = SEVERITY_COLORS[severity] ?? 'var(--text-secondary)'
+  const tone = SEVERITY_TONES[severity] ?? { color: 'var(--text-secondary)', bg: 'var(--bg-primary)' }
   return (
-    <Badge color={color} bg={`${color}18`}>
-      {severity.toUpperCase()}
+    <Badge color={tone.color} bg={tone.bg}>
+      {severity}
     </Badge>
   )
 }

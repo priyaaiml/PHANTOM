@@ -164,7 +164,7 @@ export function PluginsView() {
           </div>
         )}
         {activeRun?.status === 'failed' && activeRun.error && (
-          <div style={{ margin: 12, padding: 10, background: 'rgba(255,56,56,0.08)', border: '1px solid rgba(255,56,56,0.3)', borderRadius: 8, color: 'var(--severity-critical)', fontSize: 11.5 }}>
+          <div style={{ margin: 12, padding: 10, background: '#fdf0f0', border: '1px solid #f0c2c2', borderRadius: 'var(--radius-md)', color: 'var(--severity-critical)', fontSize: 11.5 }}>
             {activeRun.error}
           </div>
         )}

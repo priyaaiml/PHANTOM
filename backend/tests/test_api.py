@@ -5,6 +5,7 @@ Run: backend/.venv/Scripts/python -m pytest tests/ -v
 from __future__ import annotations
 
 import importlib
+import asyncio
 import os
 import sys
 import tempfile
@@ -729,3 +730,162 @@ def test_each_missing_header_is_reported_separately(client):
         "strict-transport-security", "content-security-policy",
         "x-frame-options", "x-content-type-options",
     }
+
+
+# --- intercept lifecycle (regression: an intercept stuck on with no filter
+# --- held every request forever and made the proxy look dead) ---------------
+
+
+def test_intercept_toggle_persists_and_is_restored(client, monkeypatch):
+    from core import proxy_engine as engine_module
+    from core.proxy_engine import get_proxy_engine
+
+    # toggling through the API must land in the settings table, so the value the
+    # Settings page shows is the value the proxy is actually running with
+    client.post("/api/proxy/intercept/toggle", json={"enabled": True, "filter": "GET http://only.test"})
+    proxy_settings = client.get("/api/settings").json()["categories"]["proxy"]
+    assert proxy_settings["intercept_enabled"] == "true"
+    assert proxy_settings["intercept_filter"] == "GET http://only.test"
+
+    # a restart must restore the persisted state, not the in-memory default
+    async def fake_fetch_all(_query, _params=()):
+        return [
+            {"key": "intercept_enabled", "value": "true"},
+            {"key": "intercept_filter", "value": "GET http://only.test"},
+        ]
+
+    monkeypatch.setattr(engine_module.database, "fetch_all", fake_fetch_all)
+    engine = get_proxy_engine()
+    engine.addon.intercept_enabled = False
+    engine.addon.intercept_filter = ""
+    asyncio.run(engine.load_intercept_settings())
+    assert engine.addon.intercept_enabled is True
+    assert engine.addon.intercept_filter == "GET http://only.test"
+    assert client.get("/api/proxy/status").json()["intercept_enabled"] is True
+
+    # and turning it off must clear the queue + the persisted flag
+    monkeypatch.undo()
+    body = client.post("/api/proxy/intercept/toggle", json={"enabled": False}).json()
+    assert body == {"intercept": False, "filter": ""}
+    assert client.get("/api/proxy/status").json()["intercept_enabled"] is False
+    assert client.get("/api/settings").json()["categories"]["proxy"]["intercept_enabled"] == "false"
+
+
+class _FakeRequest:
+    method = "GET"
+    pretty_url = "http://127.0.0.1:9/probe"
+    headers: dict = {}
+    raw_content = b""
+    content_type = None
+
+
+class _FakeResponse:
+    status_code = 200
+    headers = {"server": "probe"}
+    raw_content = b"ok"
+
+
+class _FakeFlow:
+    def __init__(self) -> None:
+        self.request = _FakeRequest()
+        self.response = _FakeResponse()
+        self.metadata: dict = {}
+        self.killed = False
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+def _hermetic_addon(monkeypatch):
+    """An addon whose DB, rewrite and websocket side effects are all stubbed out."""
+    from core import proxy_addon, rewrite_engine
+
+    async def no_scope(_url):
+        return True
+
+    async def no_rewrite(*_a, **_k):
+        return None, None
+
+    async def no_broadcast(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(proxy_addon, "url_in_scope", no_scope)
+    monkeypatch.setattr(proxy_addon, "broadcast", no_broadcast)
+    monkeypatch.setattr(proxy_addon.PhantomAddon, "_in_scope", lambda self, flow: no_scope(flow.request.pretty_url))
+    monkeypatch.setattr(rewrite_engine, "apply_request_rules", no_rewrite)
+    monkeypatch.setattr(rewrite_engine, "apply_response_rules", no_rewrite)
+    return proxy_addon
+
+
+def test_intercept_hold_times_out_and_forwards(monkeypatch):
+    proxy_addon = _hermetic_addon(monkeypatch)
+    monkeypatch.setattr(proxy_addon, "INTERCEPT_HOLD_TIMEOUT_S", 0.05)
+
+    addon = proxy_addon.PhantomAddon()
+    addon.intercept_enabled = True  # empty filter == match everything
+    flow = _FakeFlow()
+
+    asyncio.run(addon.request(flow))
+
+    assert flow.metadata[proxy_addon.META_INTERCEPTED] is True
+    assert flow.killed is False, "a timed-out intercept must forward, not drop"
+    assert addon.held == {}, "held flow must leave the queue"
+    assert flow.metadata[proxy_addon.META_HELD_S] >= 0.05
+
+
+def test_response_time_excludes_intercept_hold(monkeypatch):
+    proxy_addon = _hermetic_addon(monkeypatch)
+    captured: dict = {}
+
+    async def fake_execute(query, params=()):
+        captured["params"] = params
+        return 7
+
+    monkeypatch.setattr(proxy_addon.database, "execute", fake_execute)
+
+    flow = _FakeFlow()
+    flow.metadata[proxy_addon.META_START] = time.monotonic() - 5.0
+    flow.metadata[proxy_addon.META_HELD_S] = 4.0
+
+    asyncio.run(proxy_addon.PhantomAddon()._persist(flow))
+
+    response_time_ms = captured["params"][14]
+    assert response_time_ms < 2000, f"hold time leaked into response_time_ms: {response_time_ms}"
+
+
+def test_error_flow_is_persisted(monkeypatch):
+    # mitmproxy delivers *either* a response or an error per flow. A refused or
+    # unreachable upstream yields a client-visible 502 via the `error` hook —
+    # those must still land in History, otherwise the capture pipeline silently
+    # drops exactly the failures a tester is hunting for.
+    proxy_addon = _hermetic_addon(monkeypatch)
+    persisted: list = []
+
+    async def fake_persist(self, flow):
+        persisted.append(flow)
+
+    monkeypatch.setattr(proxy_addon.PhantomAddon, "_persist", fake_persist)
+
+    flow = _FakeFlow()
+    flow.response = None  # errored flows have no response
+    asyncio.run(proxy_addon.PhantomAddon().error(flow))
+
+    assert persisted == [flow], "an errored flow must be persisted to history"
+
+
+def test_dropped_flow_is_not_persisted(monkeypatch):
+    # A flow the tester deliberately dropped in intercept must not pollute History.
+    proxy_addon = _hermetic_addon(monkeypatch)
+    persisted: list = []
+
+    async def fake_persist(self, flow):
+        persisted.append(flow)
+
+    monkeypatch.setattr(proxy_addon.PhantomAddon, "_persist", fake_persist)
+
+    flow = _FakeFlow()
+    flow.metadata[proxy_addon.META_DROPPED] = True
+    asyncio.run(proxy_addon.PhantomAddon().error(flow))
+
+    assert persisted == [], "a user-dropped flow must not be recorded"
+

@@ -190,7 +190,7 @@ function highlight(
         key={`m${matchIdx}`}
         data-match={matchIdx}
         style={{
-          background: matchIdx === activeMatch ? 'var(--accent-primary)' : 'rgba(108, 92, 231, 0.30)',
+          background: matchIdx === activeMatch ? 'var(--accent-primary)' : 'rgba(37, 99, 235, 0.20)',
           color: matchIdx === activeMatch ? '#fff' : 'inherit',
           borderRadius: 2,
           padding: '0 1px',

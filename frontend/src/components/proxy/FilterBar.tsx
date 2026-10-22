@@ -102,7 +102,7 @@ export function FilterBar() {
               border: '1px solid var(--border-active)',
               borderRadius: 'var(--radius-md)',
               padding: 12,
-              boxShadow: '0 10px 30px rgba(0,0,0,0.55)',
+              boxShadow: 'var(--shadow-lg)',
               display: 'flex',
               flexDirection: 'column',
               gap: 8,

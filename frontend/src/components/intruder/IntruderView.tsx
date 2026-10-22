@@ -210,7 +210,7 @@ export function IntruderView() {
                         background: r.is_baseline
                           ? 'var(--bg-active)'
                           : deviates
-                            ? 'rgba(255,56,56,0.10)'
+                            ? '#fdf0f0'
                             : 'transparent',
                         borderBottom: '1px solid var(--border-primary)',
                       }}

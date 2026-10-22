@@ -25,10 +25,18 @@ from utils.logger import get_logger
 
 log = get_logger(__name__)
 
+# A held flow is released after this long even if the user never acts on it.
+# Intercept deliberately pauses traffic, but a forgotten or accidentally
+# enabled intercept (the UI binds it to Ctrl+Shift+I) must not wedge every
+# request forever — the proxy then looks broken instead of merely paused.
+INTERCEPT_HOLD_TIMEOUT_S = 120.0
+
 META_FLOW_ID = "phantom_flow_id"
 META_START = "phantom_start"
 META_INTERCEPTED = "phantom_intercepted"
 META_IN_SCOPE = "phantom_in_scope"
+META_HELD_S = "phantom_held_s"
+META_DROPPED = "phantom_dropped"
 
 
 @dataclass
@@ -60,6 +68,7 @@ class PhantomAddon:
         flow.metadata[META_START] = time.monotonic()
         flow.metadata[META_INTERCEPTED] = False
         flow.metadata[META_IN_SCOPE] = await self._in_scope(flow)
+        flow.metadata[META_HELD_S] = 0.0
 
         # Match & Replace (request side) — applied before intercept so the
         # held request shows exactly what will be sent (spec 003, FR-003).
@@ -99,13 +108,31 @@ class PhantomAddon:
                 "intercept_request",
                 {"flow_id": held.flow_id, "method": held.method, "url": held.url},
             )
-            await held.resume.wait()
+            held_from = time.monotonic()
+            try:
+                await asyncio.wait_for(
+                    held.resume.wait(), timeout=INTERCEPT_HOLD_TIMEOUT_S
+                )
+            except asyncio.TimeoutError:
+                held.action = "forward"
+                log.warning(
+                    "intercept timed out after %gs for %s %s — forwarding",
+                    INTERCEPT_HOLD_TIMEOUT_S,
+                    held.method,
+                    held.url,
+                )
+            # Time the user spent deciding is not upstream latency; keep it out
+            # of response_time_ms so dashboard averages stay meaningful.
+            flow.metadata[META_HELD_S] = (
+                flow.metadata.get(META_HELD_S, 0.0) + time.monotonic() - held_from
+            )
             self.held.pop(held.flow_id, None)
             await broadcast(
                 "intercept_resolved",
                 {"flow_id": held.flow_id, "action": held.action},
             )
             if held.action == "drop":
+                flow.metadata[META_DROPPED] = True
                 flow.kill()
                 return
             if held.modified_request:
@@ -135,12 +162,22 @@ class PhantomAddon:
         except Exception:
             log.exception("failed to persist flow %s", flow.request.pretty_url)
 
-    def error(self, flow: mitmproxy.http.HTTPFlow) -> None:
+    async def error(self, flow: mitmproxy.http.HTTPFlow) -> None:
+        # mitmproxy hands every flow *either* a response *or* an error, never
+        # both — a refused/unreachable upstream, a protocol violation, or a
+        # dropped connection all arrive here instead of via `response()`. Those
+        # are exactly the requests a tester needs to see, so persist them too.
+        if flow.metadata.get(META_DROPPED):
+            return  # the user dropped this on purpose; not history
         log.warning(
             "flow error: %s — %s",
             flow.request.pretty_url,
             getattr(flow, "error", None),
         )
+        try:
+            await self._persist(flow)
+        except Exception:
+            log.exception("failed to persist errored flow %s", flow.request.pretty_url)
 
     # --- helpers ------------------------------------------------------------
 
@@ -180,6 +217,9 @@ class PhantomAddon:
 
     async def _persist(self, flow: mitmproxy.http.HTTPFlow) -> None:
         started = flow.metadata.get(META_START, time.monotonic())
+        held_s = flow.metadata.get(META_HELD_S, 0.0)
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        response_ms = max(0, elapsed_ms - int(held_s * 1000))
         req, resp = flow.request, flow.response
         req_headers = dict(req.headers)
         req_ct = req_headers.get("content-type")
@@ -214,7 +254,7 @@ class PhantomAddon:
                     else None
                 ),
                 resp_ct,
-                int((time.monotonic() - started) * 1000),
+                response_ms,
                 len(resp.raw_content or b"") if resp else 0,
                 1 if flow.metadata.get(META_INTERCEPTED) else 0,
                 1 if flow.metadata.get(META_IN_SCOPE, True) else 0,
@@ -231,7 +271,7 @@ class PhantomAddon:
                 "query_string": parts.query or None,
                 "url": req.pretty_url,
                 "status_code": resp.status_code if resp else None,
-                "response_time_ms": int((time.monotonic() - started) * 1000),
+                "response_time_ms": response_ms,
                 "size_bytes": len(resp.raw_content or b"") if resp else 0,
                 "is_in_scope": 1 if flow.metadata.get(META_IN_SCOPE, True) else 0,
             },

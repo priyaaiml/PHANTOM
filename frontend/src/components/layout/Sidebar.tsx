@@ -27,85 +27,42 @@ const ITEMS = [
   { to: '/copilot', label: 'Assistant', icon: MessagesSquare },
 ]
 
+const navClass = ({ isActive }: { isActive: boolean }) => `nav-item${isActive ? ' active' : ''}`
+
 export function Sidebar() {
   const wsConnected = useProxyStore((s) => s.wsConnected)
   const proxyRunning = useProxyStore((s) => s.status?.running ?? false)
 
+  const liveLabel = wsConnected ? (proxyRunning ? 'Live · capturing' : 'Live · idle') : 'Reconnecting…'
+  const liveColor = wsConnected
+    ? proxyRunning
+      ? 'var(--severity-low)'
+      : 'var(--text-muted)'
+    : 'var(--severity-medium)'
+
   return (
-    <nav
-      style={{
-        width: 56,
-        flex: '0 0 auto',
-        background: 'var(--bg-secondary)',
-        borderRight: '1px solid var(--border-primary)',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        padding: '10px 0',
-        gap: 4,
-      }}
-    >
+    <nav className="sidebar">
       {ITEMS.map(({ to, label, icon: Icon }) => (
-        <NavLink
-          key={to}
-          to={to}
-          title={label}
-          style={({ isActive }) => ({
-            width: 40,
-            height: 40,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: 'var(--radius-md)',
-            color: isActive ? '#fff' : 'var(--text-secondary)',
-            background: isActive ? 'var(--accent-grad)' : 'transparent',
-            boxShadow: isActive ? '0 0 12px var(--accent-glow)' : 'none',
-            transition: 'all var(--transition-fast)',
-          })}
-          onMouseEnter={(e) => {
-            if (!e.currentTarget.classList.contains('active'))
-              e.currentTarget.style.background = 'var(--bg-hover)'
-          }}
-          onMouseLeave={(e) => {
-            if (!e.currentTarget.classList.contains('active'))
-              e.currentTarget.style.background = 'transparent'
-          }}
-        >
-          <Icon size={18} />
+        <NavLink key={to} to={to} title={label} className={navClass}>
+          <Icon size={17} />
+          <span className="nav-label">{label}</span>
         </NavLink>
       ))}
+
       <div style={{ flex: 1 }} />
-      <NavLink
-        to="/settings"
-        title="Settings"
-        style={({ isActive }) => ({
-          width: 40,
-          height: 40,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: 'var(--radius-md)',
-          color: isActive ? '#fff' : 'var(--text-secondary)',
-          background: isActive ? 'var(--accent-primary)' : 'transparent',
-        })}
-      >
-        <Settings size={18} />
+
+      <NavLink to="/settings" title="Settings" className={navClass}>
+        <Settings size={17} />
+        <span className="nav-label">Settings</span>
       </NavLink>
-      <div
-        title={wsConnected ? 'Live events connected' : 'Live events disconnected'}
-        className={wsConnected ? 'pulse-dot' : ''}
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: '50%',
-          margin: '8px 0 2px',
-          background: wsConnected
-            ? proxyRunning
-              ? 'var(--severity-low)'
-              : 'var(--severity-info)'
-            : 'var(--severity-critical)',
-        }}
-      />
+
+      <div className="sidebar-foot" title={liveLabel}>
+        <span
+          className={`status-dot${wsConnected && proxyRunning ? ' pulse-dot' : ''}`}
+          style={{ background: liveColor }}
+        />
+        <span className="sidebar-foot-label nav-label">{liveLabel}</span>
+      </div>
     </nav>
   )
 }

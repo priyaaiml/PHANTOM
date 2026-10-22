@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { MessagesSquare, Send, User, Zap } from 'lucide-react'
+import { Info, MessagesSquare, Send, User, Zap } from 'lucide-react'
 import Markdown from 'react-markdown'
 import { useCopilotStore } from '../../stores/copilotStore'
 import { Badge } from '../shared/Badge'
@@ -27,6 +27,9 @@ export function CopilotView() {
   }
 
   const available = store.status?.available ?? false
+  const hint = store.status?.provider === 'openai'
+    ? 'Configure the provider, model, base URL and API key in Settings → AI.'
+    : 'Start the local runtime, or switch to a cloud provider in Settings → AI.'
 
   return (
     <div style={{ height: '100%', display: 'flex' }}>
@@ -36,44 +39,60 @@ export function CopilotView() {
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 10,
-            padding: '8px 12px',
+            gap: 9,
+            padding: '9px 14px',
             background: 'var(--bg-secondary)',
             borderBottom: '1px solid var(--border-primary)',
           }}
         >
           <MessagesSquare size={15} color="var(--accent-primary)" />
-          <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>PHANTOM Assistant</span>
-          <Badge
-            color={available ? 'var(--severity-low)' : 'var(--severity-medium)'}
-            bg={available ? 'rgba(0,184,148,0.1)' : 'rgba(255,193,7,0.1)'}
-          >
-            {available ? `ONLINE · ${store.status?.model}` : 'OFFLINE'}
-          </Badge>
+          <span style={{ fontWeight: 600, fontSize: 13 }}>Assistant</span>
+          {available ? (
+            <Badge color="var(--severity-low)" bg="#eef8f1">
+              Online · {store.status?.model}
+            </Badge>
+          ) : (
+            <Badge color="var(--text-secondary)" bg="var(--bg-primary)">
+              Offline
+            </Badge>
+          )}
           <div style={{ flex: 1 }} />
           <button className="btn ghost sm" title="Clear conversation history" onClick={() => void store.clearHistory()}>
             New chat
           </button>
-          <span className="mono" style={{ fontSize: 10, color: 'var(--text-muted)' }}>{store.status?.base_url}</span>
+          <span className="mono hide-sm" style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>{store.status?.base_url}</span>
         </div>
 
         {!available && (
-          <div style={{ padding: '8px 12px', background: 'rgba(255,193,7,0.07)', borderBottom: '1px solid var(--border-primary)', fontSize: 11.5, color: 'var(--severity-medium)', lineHeight: 1.5 }}>
-            {store.status?.detail
-              ? `AI unavailable — ${store.status.detail}. ` +
-                (store.status.provider === 'openai'
-                  ? 'Set provider/model/base_url/key in Settings → AI (e.g. Groq: https://api.groq.com/openai/v1 + free key at console.groq.com).'
-                  : `Run it locally: ollama serve && ollama pull ${store.status.model} — or switch provider to a free cloud endpoint in Settings → AI.`)
-              : 'Checking AI runtime…'}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '8px 14px',
+              background: 'var(--bg-primary)',
+              borderBottom: '1px solid var(--border-primary)',
+              fontSize: 11.5,
+              color: 'var(--text-secondary)',
+            }}
+          >
+            <Info size={13} color="var(--text-muted)" style={{ flex: '0 0 auto' }} />
+            <span style={{ flex: 1, lineHeight: 1.5 }}>
+              {store.status
+                ? <>AI runtime unavailable{store.status.detail ? ` — ${store.status.detail}` : ''}. {hint}</>
+                : 'Checking AI runtime…'}
+            </span>
+            <button className="btn sm" onClick={() => void store.refreshStatus()}>Retry</button>
+            <a className="btn sm" href="#/settings">Settings</a>
           </div>
         )}
 
-        <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {store.messages.length === 0 && (
-            <div style={{ color: 'var(--text-muted)', fontSize: 12, textAlign: 'center', marginTop: 40, lineHeight: 1.7 }}>
-              <MessagesSquare size={28} style={{ marginBottom: 8, opacity: 0.5 }} />
-              <div>Your AI security assistant.</div>
-              <div style={{ fontSize: 11 }}>Send a request from Proxy → “AI Analyze”, or ask anything about the traffic you're testing.</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 12, textAlign: 'center', marginTop: 48, lineHeight: 1.7 }}>
+              <MessagesSquare size={26} style={{ marginBottom: 8, opacity: 0.45 }} />
+              <div style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>Your AI security assistant.</div>
+              <div style={{ fontSize: 11.5 }}>Send a request from Proxy → “AI Analyze”, or ask anything about the traffic you're testing.</div>
             </div>
           )}
           {store.messages.map((m, i) => (
@@ -81,18 +100,17 @@ export function CopilotView() {
           ))}
         </div>
 
-        <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border-primary)', background: 'var(--bg-secondary)' }}>
+        <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border-primary)', background: 'var(--bg-secondary)' }}>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
               className="input"
               style={{ flex: 1 }}
-              placeholder={available ? 'Ask PHANTOM AI…' : 'AI runtime offline — ask after starting Ollama'}
+              placeholder={available ? 'Ask PHANTOM AI…' : 'Ask PHANTOM AI… (requires an AI runtime)'}
               value={input}
-              disabled={!available && store.messages.length === 0 ? false : !available}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && submit()}
             />
-            <button className="btn primary" onClick={submit} disabled={store.streaming}>
+            <button className="btn primary" onClick={submit} disabled={store.streaming || !input.trim()}>
               <Send size={13} />
             </button>
           </div>
@@ -101,18 +119,18 @@ export function CopilotView() {
               { label: 'Analyze last request', run: () => void store.send('Analyze the most recent captured request in my proxy history for security issues.') },
               { label: 'Write report', run: () => void store.send('Write a brief executive summary of my current findings.') },
             ].map((q) => (
-              <button key={q.label} className="btn ghost sm" disabled={!available || store.streaming} onClick={q.run}>
+              <button key={q.label} className="btn ghost sm" disabled={store.streaming} onClick={q.run}>
                 {q.label}
               </button>
             ))}
             {!store.streaming && store.lastAssistantPayloads().length > 0 && (
               <button
                 className="btn sm"
-                style={{ background: 'rgba(108,92,231,0.14)', borderColor: '#6c5ce766', color: '#b9adff' }}
+                style={{ borderColor: 'var(--border-active)', color: 'var(--accent-primary)' }}
                 title="Load the payloads from the last AI answer into the Intruder (request from context is pre-filled)"
                 onClick={() => void store.sendLastToIntruder()}
               >
-                ⚡ Send {store.lastAssistantPayloads().length} payloads to Intruder →
+                <Zap size={11} /> Send {store.lastAssistantPayloads().length} payloads to Intruder
               </button>
             )}
           </div>
@@ -120,23 +138,26 @@ export function CopilotView() {
       </div>
 
       {/* context column */}
-      <div style={{ width: 280, flex: '0 0 auto', borderLeft: '1px solid var(--border-primary)', padding: 12, overflow: 'auto', background: 'var(--bg-secondary)' }}>
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, color: 'var(--text-secondary)', marginBottom: 8 }}>CONTEXT</div>
+      <div
+        className="hide-sm"
+        style={{ width: 280, flex: '0 0 auto', borderLeft: '1px solid var(--border-primary)', padding: 14, overflow: 'auto', background: 'var(--bg-secondary)' }}
+      >
+        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 1, color: 'var(--text-muted)', marginBottom: 8 }}>CONTEXT</div>
         {store.context.type ? (
-          <div className="panel" style={{ padding: 10, fontSize: 11.5, lineHeight: 1.5 }}>
-            <Badge color="var(--accent-secondary)">{store.context.type}</Badge>
+          <div className="panel" style={{ padding: 10, fontSize: 11.5, lineHeight: 1.5, boxShadow: 'none' }}>
+            <Badge color="var(--accent-primary)" bg="var(--bg-active)">{store.context.type}</Badge>
             <div className="mono" style={{ marginTop: 8, wordBreak: 'break-all' }}>{store.context.label}</div>
           </div>
         ) : (
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.6 }}>
             No context attached. Right-click a proxy request → <b>AI Analyze</b> to attach one.
           </div>
         )}
-        <div style={{ marginTop: 20, fontSize: 10, fontWeight: 700, letterSpacing: 1.2, color: 'var(--text-secondary)' }}>SUGGESTED</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+        <div style={{ marginTop: 22, fontSize: 10.5, fontWeight: 700, letterSpacing: 1, color: 'var(--text-muted)' }}>SUGGESTED</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 8 }}>
           {['Test SQL injection', 'Check for brute force', 'Verify rate limiting', 'Test password policy'].map((s) => (
-            <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--text-secondary)' }}>
-              <Zap size={11} color="var(--accent-secondary)" /> {s}
+            <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: 'var(--text-secondary)' }}>
+              <Zap size={11} color="var(--text-muted)" /> {s}
             </div>
           ))}
         </div>
@@ -149,22 +170,22 @@ function MessageBubble({ role, content, streaming }: { role: string; content: st
   const isUser = role === 'user'
   return (
     <div className="fade-in" style={{ display: 'flex', gap: 10, alignSelf: isUser ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
-      {!isUser && <MessagesSquare size={16} color="var(--accent-primary)" style={{ marginTop: 4, flexShrink: 0 }} />}
+      {!isUser && <MessagesSquare size={15} color="var(--accent-primary)" style={{ marginTop: 3, flexShrink: 0 }} />}
       <div
-        className="panel"
         style={{
-          padding: '8px 12px',
-          background: isUser ? 'var(--bg-active)' : 'var(--bg-tertiary)',
+          padding: '9px 12px',
+          background: isUser ? 'var(--bg-active)' : 'var(--bg-secondary)',
+          border: '1px solid var(--border-primary)',
           fontSize: 12.5,
           lineHeight: 1.65,
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
-          borderRadius: isUser ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+          borderRadius: isUser ? '10px 10px 2px 10px' : '10px 10px 10px 2px',
         }}
       >
         {isUser ? content : <Markdown components={{ p: 'span' }}>{content || (streaming ? '▍' : '')}</Markdown>}
       </div>
-      {isUser && <User size={16} color="var(--text-secondary)" style={{ marginTop: 4, flexShrink: 0 }} />}
+      {isUser && <User size={15} color="var(--text-muted)" style={{ marginTop: 3, flexShrink: 0 }} />}
     </div>
   )
 }

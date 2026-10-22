@@ -47,7 +47,7 @@ export function useContextMenu() {
         borderRadius: 'var(--radius-md)',
         padding: 4,
         minWidth: 180,
-        boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+        boxShadow: 'var(--shadow-lg)',
       }}
     >
       {menu.items.map((item, i) => (

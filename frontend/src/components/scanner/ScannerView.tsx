@@ -245,7 +245,7 @@ export function ScannerView() {
                 borderRadius: 'var(--radius-md)',
                 padding: 4,
                 minWidth: 170,
-                boxShadow: '0 10px 30px rgba(0,0,0,0.55)',
+                boxShadow: 'var(--shadow-lg)',
               }}
             >
               <button className="btn ghost sm" style={{ width: '100%', justifyContent: 'flex-start' }} onClick={() => void exportReport('markdown')}>

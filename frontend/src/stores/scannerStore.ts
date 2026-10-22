@@ -15,7 +15,8 @@ interface ScannerStore {
   triageProgress: { done: number; total: number; tagged: number } | null
 
   load: () => Promise<void>
-  startScan: (type: 'active' | 'passive' | 'full', selected: string[], targetHost?: string, inScopeOnly?: boolean) => Promise<void>
+  /** Returns the new scan id, or null if the scan could not be started. */
+  startScan: (type: 'active' | 'passive' | 'full', selected: string[], targetHost?: string, inScopeOnly?: boolean) => Promise<string | null>
   selectFinding: (f: Finding | null) => void
   setFindingStatus: (id: number, status: string) => Promise<void>
   control: (scanId: string, action: 'pause' | 'resume' | 'stop') => Promise<void>
@@ -59,8 +60,10 @@ export const useScannerStore = create<ScannerStore>((set, get) => ({
         progress: { ...s.progress, [scan_id]: { scan_id, status: 'running', done: 0, total: 0 } },
       }))
       void get().load()
+      return scan_id
     } catch (err) {
       toast.error(`Scan failed to start: ${apiError(err)}`)
+      return null
     } finally {
       set({ starting: false })
     }

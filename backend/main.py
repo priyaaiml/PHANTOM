@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
     setup_logging()
     config.ensure_data_dir()
     await init_db()
+    await get_proxy_engine().load_intercept_settings()
     log.info("PHANTOM backend starting on %s:%s", config.BACKEND_HOST, config.BACKEND_PORT)
     yield
     engine = get_proxy_engine()

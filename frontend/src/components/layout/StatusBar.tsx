@@ -20,7 +20,7 @@ export function StatusBar() {
   return (
     <footer
       style={{
-        height: 24,
+        height: 'var(--statusbar-h)',
         flex: '0 0 auto',
         display: 'flex',
         alignItems: 'stretch',
@@ -28,31 +28,28 @@ export function StatusBar() {
         borderTop: '1px solid var(--border-primary)',
       }}
     >
-      <div style={cell}>
+      <div style={cell} title="Local proxy listener address">
         <span
-          className={running ? 'pulse-dot' : ''}
-          style={{
-            width: 7,
-            height: 7,
-            borderRadius: '50%',
-            background: running ? 'var(--severity-low)' : 'var(--text-muted)',
-          }}
+          className={running ? 'status-dot pulse-dot' : 'status-dot'}
+          style={{ background: running ? 'var(--severity-low)' : 'var(--text-muted)' }}
         />
-        Proxy: {running ? `${status?.host}:${status?.port}` : 'off'}
+        <span className="mono">{running ? `${status?.host}:${status?.port}` : 'proxy stopped'}</span>
       </div>
-      <div style={cell}>Requests: {status?.requests_captured ?? 0}</div>
-      <div style={cell}>History: {total.toLocaleString()}</div>
-      <div style={cell}>Intercept: {status?.intercept_enabled ? 'ON' : 'off'}</div>
-      <div style={{ ...cell, borderRight: 'none', marginLeft: 'auto' }}>
+      <div style={cell} title="Requests captured in this session">
+        Requests <span className="mono">{status?.requests_captured ?? 0}</span>
+      </div>
+      <div style={cell} title="Requests stored in history">
+        History <span className="mono">{total.toLocaleString()}</span>
+      </div>
+      <div style={cell} title="Request interception">
+        Intercept <span className="mono">{status?.intercept_enabled ? 'on' : 'off'}</span>
+      </div>
+      <div style={{ ...cell, borderRight: 'none', marginLeft: 'auto' }} title="Live event stream">
         <span
-          style={{
-            width: 7,
-            height: 7,
-            borderRadius: '50%',
-            background: ws ? 'var(--severity-low)' : 'var(--severity-critical)',
-          }}
+          className="status-dot"
+          style={{ background: ws ? 'var(--severity-low)' : 'var(--severity-medium)' }}
         />
-        Live: {ws ? 'connected' : 'reconnecting…'}
+        {ws ? 'Live' : 'Reconnecting…'}
       </div>
     </footer>
   )
